@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Axxon AI Agent WebSocket</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .status.disconnected {
+            background: #e74c3c;
+        }
+
+        .status.connected {
+            background: #2ecc71;
+        }
+
+        .config {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .config-row input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .config-row button {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .config-row button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .config-row button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #ffffff;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message.bot {
+            background: #e9ecef;
+            color: #2c3e50;
+        }
+
+        .message.system {
+            background: #fff3cd;
+            color: #856404;
+            max-width: 100%;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            max-width: 100%;
+        }
+
+        .input-area {
+            padding: 20px;
+            background: #f8f9fa;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-row input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .input-row button {
+            padding: 12px 30px;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .input-row button:hover {
+            background: #27ae60;
+        }
+
+        .input-row button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .actions {
+            padding: 15px 20px;
+            background: #ffffff;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .actions button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .btn-stats {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-stats:hover {
+            background: #2980b9;
+        }
+
+        .btn-clear {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: #c0392b;
+        }
+
+        .btn-disconnect {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Axxon AI Agent - Test Client</h1>
+            <span class="status disconnected" id="status">Desconectado</span>
+        </div>
+
+        <div class="config">
+            <div class="config-row">
+                <input type="text" id="userId" placeholder="Tu User ID (ej: usuario_123)" value="test_user_1">
+                <input type="text" id="wsUrl" placeholder="WebSocket URL" value="ws://localhost:8000/ws/chat">
+                <button id="connectBtn" onclick="connect()">Conectar</button>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="message system">
+                👋 Bienvenido al cliente de prueba. Ingresa tu User ID y haz clic en "Conectar"
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-row">
+                <input type="text" id="messageInput" placeholder="Escribe tu mensaje..." disabled>
+                <button id="sendBtn" onclick="sendMessage()" disabled>Enviar</button>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn-stats" onclick="getStats()" id="statsBtn" disabled>📊 Estadísticas</button>
+            <button class="btn-clear" onclick="clearSession()" id="clearBtn" disabled>🗑️ Limpiar Sesión</button>
+            <button class="btn-disconnect" onclick="disconnect()" id="disconnectBtn" disabled>🔌 Desconectar</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let userId = null;
+
+        function addMessage(content, type) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const statusEl = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const messageInput = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const statsBtn = document.getElementById('statsBtn');
+            const clearBtn = document.getElementById('clearBtn');
+
+            if (connected) {
+                statusEl.textContent = 'Conectado';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+                statsBtn.disabled = false;
+                clearBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Desconectado';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                statsBtn.disabled = true;
+                clearBtn.disabled = true;
+            }
+        }
+
+        function connect() {
+            userId = document.getElementById('userId').value.trim();
+            const wsUrl = document.getElementById('wsUrl').value.trim();
+
+            if (!userId) {
+                alert('Por favor ingresa un User ID');
+                return;
+            }
+
+            addMessage(`Conectando a ${wsUrl}...`, 'system');
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                addMessage('✅ WebSocket conectado', 'system');
+                // Enviar mensaje de inicialización
+                ws.send(JSON.stringify({
+                    type: 'init',
+                    user_id: userId
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('Recibido:', data);
+
+                switch(data.type) {
+                    case 'session_ready':
+                        updateStatus(true);
+                        addMessage(`✅ ${data.message}`, 'system');
+                        addMessage(`Conversation ID: ${data.conversation_id}`, 'system');
+                        break;
+
+                    case 'bot_message':
+                        addMessage(data.message, 'bot');
+                        break;
+
+                    case 'processing':
+                        addMessage('⏳ ' + data.message, 'system');
+                        break;
+
+                    case 'session_cleared':
+                        addMessage('🗑️ ' + data.message, 'system');
+                        break;
+
+                    case 'stats':
+                        addMessage(`📊 Estadísticas:\n${JSON.stringify(data.data, null, 2)}`, 'system');
+                        break;
+
+                    case 'error':
+                        addMessage('❌ Error: ' + data.message, 'error');
+                        break;
+
+                    default:
+                        addMessage(`Mensaje desconocido: ${JSON.stringify(data)}`, 'system');
+                }
+            };
+
+            ws.onerror = (error) => {
+                addMessage('❌ Error de conexión: ' + error, 'error');
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                addMessage('🔌 Desconectado del servidor', 'system');
+                updateStatus(false);
+            };
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            addMessage(message, 'user');
+
+            ws.send(JSON.stringify({
+                type: 'message',
+                message: message
+            }));
+
+            input.value = '';
+        }
+
+        function getStats() {
+            ws.send(JSON.stringify({
+                type: 'get_stats'
+            }));
+        }
+
+        function clearSession() {
+            if (confirm('¿Estás seguro de que quieres eliminar tu historial de conversación?')) {
+                ws.send(JSON.stringify({
+                    type: 'clear_session'
+                }));
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        // Enter para enviar mensaje
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+.input-bar {
+  padding: 16px 24px 24px;
+  background: #12121e;
+}
+
+.input-container {
+  display: flex;
+  align-items: center;
+  background: #1e1e2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 24px;
+  padding: 4px 4px 4px 20px;
+  transition: border-color 0.2s;
+}
+
+.input-container:focus-within {
+  border-color: #4a4a6a;
+}
+
+.input-text {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e0e0e0;
+  font-size: 15px;
+  padding: 10px 0;
+  font-family: inherit;
+}
+
+.input-text::placeholder {
+  color: #555;
+}
+
+.input-text:disabled {
+  opacity: 0.4;
+}
+
+.input-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-mic,
+.btn-send {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-mic {
+  background: transparent;
+  color: #888;
+}
+
+.btn-mic:hover:not(:disabled) {
+  background: #2a2a3e;
+  color: #e0e0e0;
+}
+
+.btn-mic.connecting {
+  background: #f39c12;
+  color: #fff;
+  animation: mic-spin 1s linear infinite;
+  opacity: 1 !important;
+}
+
+@keyframes mic-spin {
+  0% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(243, 156, 18, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.5); }
+}
+
+.btn-mic.active {
+  background: #e74c3c;
+  color: #fff;
+  animation: mic-pulse 1.5s infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+}
+
+.btn-send {
+  background: #e0e0e0;
+  color: #12121e;
+}
+
+.btn-send:hover:not(:disabled) {
+  background: #fff;
+}
+
+.btn-send:disabled,
+.btn-mic:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}

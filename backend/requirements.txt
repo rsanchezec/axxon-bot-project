@@ -1,0 +1,10 @@
+azure-ai-projects==2.0.0b3
+openai==2.15.0
+python-dotenv
+azure-identity
+jsonref
+fastapi
+uvicorn[standard]
+azure-ai-voicelive[aiohttp]>=1.2.0b4
+numpy
+sounddevice

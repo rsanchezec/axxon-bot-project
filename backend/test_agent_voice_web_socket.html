@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test SIKA AI Voice WebSocket</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .status-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .status.disconnected {
+            background: #e74c3c;
+        }
+
+        .status.connected {
+            background: #2ecc71;
+        }
+
+        .status.inactive {
+            background: #95a5a6;
+        }
+
+        .status.active {
+            background: #f39c12;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .config {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .config-row input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .config-row button {
+            padding: 12px 30px;
+            background: #f093fb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .config-row button:hover {
+            background: #f5576c;
+            transform: translateY(-2px);
+        }
+
+        .config-row button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .voice-controls {
+            padding: 20px;
+            background: #fff;
+            border-bottom: 2px solid #e9ecef;
+            text-align: center;
+        }
+
+        .mic-button {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            font-size: 40px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .mic-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .mic-button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .mic-button.recording {
+            background: #e74c3c;
+            animation: recordPulse 1s infinite;
+        }
+
+        @keyframes recordPulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #ffffff;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            background: #f093fb;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message.bot {
+            background: #e9ecef;
+            color: #2c3e50;
+        }
+
+        .message.system {
+            background: #fff3cd;
+            color: #856404;
+            max-width: 100%;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            max-width: 100%;
+        }
+
+        .message.transcript {
+            background: #d1ecf1;
+            color: #0c5460;
+            font-style: italic;
+        }
+
+        .actions {
+            padding: 15px 20px;
+            background: #ffffff;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .actions button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .btn-stats {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-stats:hover {
+            background: #2980b9;
+        }
+
+        .btn-disconnect {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #c0392b;
+        }
+
+        .btn-disconnect:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 SIKA AI Voice - Test Client</h1>
+            <div class="status-row">
+                <span class="status disconnected" id="status">Desconectado</span>
+                <span class="status inactive" id="micStatus">Micrófono Inactivo</span>
+            </div>
+        </div>
+
+        <div class="config">
+            <div class="config-row">
+                <input type="text" id="userId" placeholder="Tu User ID (ej: usuario_123)" value="test_user_voice_1">
+                <input type="text" id="wsUrl" placeholder="WebSocket URL" value="ws://localhost:8001/ws/voice">
+                <button id="connectBtn" onclick="connect()">Conectar</button>
+            </div>
+        </div>
+
+        <div class="voice-controls">
+            <button class="mic-button" id="micBtn" onclick="toggleMicrophone()" disabled>🎤</button>
+            <p style="margin-top: 10px; color: #7f8c8d; font-size: 14px;">Presiona para hablar</p>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="message system">
+                👋 Bienvenido al cliente de prueba de voz. Ingresa tu User ID y haz clic en "Conectar"
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn-stats" onclick="getStats()" id="statsBtn" disabled>📊 Estadísticas</button>
+            <button class="btn-disconnect" onclick="disconnect()" id="disconnectBtn" disabled>🔌 Desconectar</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let userId = null;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let audioStream = null;
+        let isRecording = false;
+        let audioPlaybackContext = null;
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let nextStartTime = 0;
+
+        function addMessage(content, type) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const statusEl = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const micBtn = document.getElementById('micBtn');
+            const statsBtn = document.getElementById('statsBtn');
+
+            if (connected) {
+                statusEl.textContent = 'Conectado';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                micBtn.disabled = false;
+                statsBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Desconectado';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                micBtn.disabled = true;
+                statsBtn.disabled = true;
+            }
+        }
+
+        function updateMicStatus(recording) {
+            const micStatusEl = document.getElementById('micStatus');
+            const micBtn = document.getElementById('micBtn');
+
+            if (recording) {
+                micStatusEl.textContent = '🔴 Grabando...';
+                micStatusEl.className = 'status active';
+                micBtn.classList.add('recording');
+            } else {
+                micStatusEl.textContent = 'Micrófono Inactivo';
+                micStatusEl.className = 'status inactive';
+                micBtn.classList.remove('recording');
+            }
+        }
+
+        async function connect() {
+            userId = document.getElementById('userId').value.trim();
+            const wsUrl = document.getElementById('wsUrl').value.trim();
+
+            if (!userId) {
+                alert('Por favor ingresa un User ID');
+                return;
+            }
+
+            addMessage(`Conectando a ${wsUrl}...`, 'system');
+
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';  // ✅ Configurar para recibir ArrayBuffer
+
+            ws.onopen = () => {
+                addMessage('✅ WebSocket conectado', 'system');
+                // Enviar mensaje de inicialización
+                ws.send(JSON.stringify({
+                    type: 'init_voice',
+                    user_id: userId
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                // Detectar si es mensaje de texto (JSON) o binario (audio)
+                if (event.data instanceof ArrayBuffer) {
+                    // Es audio binario - reproducirlo
+                    console.log('📢 Recibido audio del agente:', event.data.byteLength, 'bytes');
+                    playAudioChunk(event.data);
+                } else {
+                    // Es mensaje JSON
+                    const data = JSON.parse(event.data);
+                    console.log('Recibido:', data);
+
+                    switch(data.type) {
+                        case 'voice_session_ready':
+                            updateStatus(true);
+                            addMessage(`✅ Sesión de voz iniciada: ${data.session_id}`, 'system');
+                            initAudioPlayback();
+                            break;
+
+                        case 'user_transcript':
+                            addMessage(`🗣️ Tú: ${data.text}`, 'user');
+                            break;
+
+                        case 'agent_text':
+                            addMessage(`🤖 SIKA: ${data.text}`, 'bot');
+                            break;
+
+                        case 'agent_transcript':
+                            addMessage(`🔊 Audio: ${data.text}`, 'transcript');
+                            break;
+
+                        case 'voice_session_stopped':
+                            addMessage('🛑 Sesión de voz detenida', 'system');
+                            break;
+
+                        case 'error':
+                            addMessage('❌ Error: ' + data.message, 'error');
+                            break;
+
+                        default:
+                            addMessage(`Mensaje desconocido: ${JSON.stringify(data)}`, 'system');
+                    }
+                }
+            };
+
+            ws.onerror = (error) => {
+                addMessage('❌ Error de conexión: ' + error, 'error');
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                addMessage('🔌 Desconectado del servidor', 'system');
+                updateStatus(false);
+                stopMicrophone();
+            };
+        }
+
+        function initAudioPlayback() {
+            // Inicializar contexto de audio para reproducción
+            if (!audioPlaybackContext) {
+                audioPlaybackContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                nextStartTime = audioPlaybackContext.currentTime;
+                console.log('🔊 Contexto de audio de reproducción inicializado');
+            }
+        }
+
+        function playAudioChunk(arrayBuffer) {
+            if (!audioPlaybackContext) {
+                console.warn('⚠️ Contexto de audio no inicializado');
+                return;
+            }
+
+            // Convertir ArrayBuffer a Int16Array (PCM 16-bit)
+            const pcmData = new Int16Array(arrayBuffer);
+
+            // Convertir PCM 16-bit a Float32Array para Web Audio API
+            const audioData = new Float32Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+                audioData[i] = pcmData[i] / (pcmData[i] < 0 ? 0x8000 : 0x7FFF);
+            }
+
+            // Crear AudioBuffer
+            const audioBuffer = audioPlaybackContext.createBuffer(1, audioData.length, 24000);
+            audioBuffer.getChannelData(0).set(audioData);
+
+            // Crear source
+            const source = audioPlaybackContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioPlaybackContext.destination);
+
+            // Calcular cuándo debe empezar este chunk
+            const now = audioPlaybackContext.currentTime;
+
+            // Si nextStartTime está en el pasado, ajustarlo al presente
+            if (nextStartTime < now) {
+                nextStartTime = now;
+            }
+
+            // Reproducir en el momento correcto (secuencialmente)
+            source.start(nextStartTime);
+
+            // Actualizar nextStartTime para el siguiente chunk
+            const duration = audioBuffer.duration;
+            nextStartTime += duration;
+
+            console.log('🔊 Audio programado en', nextStartTime.toFixed(3), 's, duración:', duration.toFixed(3), 's');
+        }
+
+        async function toggleMicrophone() {
+            if (isRecording) {
+                stopMicrophone();
+            } else {
+                await startMicrophone();
+            }
+        }
+
+        function resetAudioPlayback() {
+            // Resetear el tiempo de reproducción cuando el usuario empieza a hablar
+            if (audioPlaybackContext) {
+                nextStartTime = audioPlaybackContext.currentTime;
+            }
+            console.log('🔄 Audio playback reseteado');
+        }
+
+        async function startMicrophone() {
+            try {
+                // Resetear reproducción cuando el usuario empieza a hablar
+                resetAudioPlayback();
+
+                // Solicitar acceso al micrófono
+                audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 24000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                // Crear contexto de audio
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                const source = audioContext.createMediaStreamSource(audioStream);
+
+                // Crear ScriptProcessor para capturar audio
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    // Convertir Float32Array a Int16Array (PCM 16-bit)
+                    const pcmData = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+
+                    // Enviar audio al servidor
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(pcmData.buffer);
+                    }
+                };
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                isRecording = true;
+                updateMicStatus(true);
+                addMessage('🎤 Micrófono activado. Puedes hablar ahora.', 'system');
+
+            } catch (error) {
+                addMessage('❌ Error al acceder al micrófono: ' + error.message, 'error');
+                console.error('Microphone error:', error);
+            }
+        }
+
+        function stopMicrophone() {
+            isRecording = false;
+            updateMicStatus(false);
+
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            addMessage('🔇 Micrófono desactivado', 'system');
+        }
+
+        async function getStats() {
+            try {
+                const response = await fetch('http://localhost:8001/health');
+                const data = await response.json();
+                addMessage(`📊 Estadísticas:\n${JSON.stringify(data, null, 2)}`, 'system');
+            } catch (error) {
+                addMessage('❌ Error al obtener estadísticas: ' + error.message, 'error');
+            }
+        }
+
+        function disconnect() {
+            stopMicrophone();
+
+            // Cerrar contexto de audio de reproducción
+            if (audioPlaybackContext) {
+                audioPlaybackContext.close();
+                audioPlaybackContext = null;
+            }
+
+            // Resetear variables de audio
+            nextStartTime = 0;
+            audioQueue = [];
+            isPlayingAudio = false;
+
+            if (ws) {
+                // Enviar mensaje de detener sesión
+                ws.send(JSON.stringify({
+                    type: 'stop_voice'
+                }));
+
+                setTimeout(() => {
+                    ws.close();
+                    ws = null;
+                }, 500);
+            }
+        }
+
+        // Limpiar al cerrar la página
+        window.addEventListener('beforeunload', () => {
+            disconnect();
+        });
+    </script>
+</body>
+</html>

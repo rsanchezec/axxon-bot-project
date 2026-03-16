@@ -1,0 +1,69 @@
+# ========================
+# Python / Backend
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Variables de entorno (credenciales Azure)
+.env
+.env.*
+!.env.example
+
+# Logs de sesiones de voz
+backend/logs/
+
+# ========================
+# Node.js / Frontend
+# ========================
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ========================
+# IDE / Editores
+# ========================
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*~
+
+# ========================
+# Sistema Operativo
+# ========================
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ========================
+# Docker (si se usa en el futuro)
+# ========================
+.dockerignore
+
+# ========================
+# Otros
+# ========================
+*.log
+*.tmp
+*.bak
+*.cache
+.claude/
