@@ -7,13 +7,14 @@ import os  # Biblioteca estándar para interactuar con el sistema operativo
 from dotenv import load_dotenv  # Biblioteca para cargar variables de entorno desde un archivo .env
 from azure.identity import DefaultAzureCredential  # Biblioteca de Azure para autenticación
 from azure.ai.projects import AIProjectClient  # Cliente principal para interactuar con Azure AI Projects
+from pathlib import Path  # Para construir rutas de archivos de forma portable
 
 # ----------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DEL ENTORNO
 # ----------------------------------------------------------------------------------
 
-# Cargar variables de entorno desde el archivo .env ubicado en la raíz del proyecto
-load_dotenv()
+# Cargar variables de entorno desde el archivo .env en la carpeta padre (backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # Recuperar el endpoint del proyecto desde las variables de entorno
 foundry_project_endpoint = os.getenv("FOUNDRY_PROJECT_ENDPOINT")

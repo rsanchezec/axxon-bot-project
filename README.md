@@ -108,19 +108,17 @@ axxon-bot-project/
 │   ├── .env                               # Variables de entorno (credenciales Azure)
 │   ├── .venv/                             # Virtual environment (Python 3.14, uv)
 │   ├── requirements.txt                   # Dependencias pip
-│   ├── logs/                              # Logs de sesiones de voz
-│   │
-│   ├── agent_text_web_socket.py           # Servidor WebSocket texto (puerto 8000)
-│   ├── use_existing_agent.py              # Script CLI para chat (standalone)
-│   ├── test_agent_text_web_socket.html    # Cliente de prueba HTML (texto)
-│   │
-│   ├── voice_live_manager.py              # Clase VoiceLiveSession (conexion Azure Voice Live)
-│   ├── voice_live_server.py               # Servidor WebSocket voz (puerto 8001)
-│   ├── agent_voice_live.py                # Cliente standalone voz (mic + altavoces)
-│   ├── test_agent_voice_web_socket.html   # Cliente de prueba HTML (voz)
-│   │
-│   ├── voice_manager.py                   # DEPRECADO (SDK viejo)
-│   └── voice_websocket.py                 # DEPRECADO (SDK viejo)
+│   ├── text/
+│   │   └── agent_text_web_socket.py       # Servidor WebSocket texto (puerto 8000)
+│   ├── voice/
+│   │   ├── voice_live_manager.py          # Clase VoiceLiveSession (conexion Azure Voice Live)
+│   │   └── voice_live_server.py           # Servidor WebSocket voz (puerto 8001)
+│   ├── test/
+│   │   ├── test_agent_text_web_socket.html  # Cliente de prueba HTML (texto)
+│   │   └── test_agent_voice_web_socket.html # Cliente de prueba HTML (voz)
+│   └── help/
+│       ├── agent_voice_live.py            # Cliente standalone voz (mic + altavoces, referencia)
+│       └── use_existing_agent.py          # Script CLI para chat (standalone)
 ```
 
 ## Stack Tecnologico
@@ -187,7 +185,7 @@ PROJECT_NAME=nombre-proyecto-foundry
 
 ```bash
 cd backend
-uv pip install -r requirements.txt
+uv pip install -r .\requirements.txt
 ```
 
 ### 3. Instalacion del Frontend
@@ -204,13 +202,13 @@ Se necesitan tres terminales para ejecutar la aplicacion completa:
 ### Terminal 1 - Servidor de Texto (puerto 8000)
 ```bash
 cd backend
-uv run .\agent_text_web_socket.py
+uv run text\agent_text_web_socket.py
 ```
 
 ### Terminal 2 - Servidor de Voz (puerto 8001)
 ```bash
 cd backend
-uv run .\voice_live_server.py
+uv run voice\voice_live_server.py
 ```
 
 ### Terminal 3 - Frontend (puerto 5173)
@@ -255,13 +253,13 @@ La sesion de voz se configura con las siguientes caracteristicas:
 
 ### Backend
 
-| Archivo | Descripcion |
-|---|---|
-| `agent_text_web_socket.py` | Servidor FastAPI que expone el endpoint WebSocket `/ws/chat` en el puerto 8000. Clase `AgentChatManager` que gestiona sesiones de texto por usuario, creando conversaciones en Azure AI Foundry y procesando mensajes con el agente. |
-| `voice_live_manager.py` | Clase `VoiceLiveSession` que encapsula toda la logica de conexion con Azure Voice Live SDK. Fully async, maneja la configuracion de la sesion, envio/recepcion de audio y eventos. |
-| `voice_live_server.py` | Servidor FastAPI que expone el endpoint WebSocket `/ws/voice` en el puerto 8001. Clase `VoiceLiveConnectionManager` que gestiona sesiones de voz por usuario, actuando como puente entre el navegador y Azure Voice Live. |
-| `agent_voice_live.py` | Cliente standalone de voz para testing local. Usa microfono y altavoces directamente (sin navegador). |
-| `use_existing_agent.py` | Script CLI para chatear con el agente desde la terminal (sin servidor web). |
+| Archivo | Carpeta | Descripcion |
+|---|---|---|
+| `agent_text_web_socket.py` | `text/` | Servidor FastAPI que expone el endpoint WebSocket `/ws/chat` en el puerto 8000. Clase `AgentChatManager` que gestiona sesiones de texto por usuario, creando conversaciones en Azure AI Foundry y procesando mensajes con el agente. |
+| `voice_live_manager.py` | `voice/` | Clase `VoiceLiveSession` que encapsula toda la logica de conexion con Azure Voice Live SDK. Fully async, maneja la configuracion de la sesion, envio/recepcion de audio y eventos. |
+| `voice_live_server.py` | `voice/` | Servidor FastAPI que expone el endpoint WebSocket `/ws/voice` en el puerto 8001. Clase `VoiceLiveConnectionManager` que gestiona sesiones de voz por usuario, actuando como puente entre el navegador y Azure Voice Live. |
+| `agent_voice_live.py` | `help/` | Cliente standalone de voz para testing local. Usa microfono y altavoces directamente (sin navegador). |
+| `use_existing_agent.py` | `help/` | Script CLI para chatear con el agente desde la terminal (sin servidor web). |
 
 ### Frontend
 
@@ -278,21 +276,10 @@ La sesion de voz se configura con las siguientes caracteristicas:
 
 ## Herramientas de Testing
 
-El proyecto incluye clientes HTML standalone para probar los backends sin necesidad del frontend React:
+El proyecto incluye clientes HTML standalone en la carpeta `backend/test/` para probar los backends sin necesidad del frontend React:
 
-- **`test_agent_text_web_socket.html`**: Abrir directamente en el navegador para probar el modo texto
-- **`test_agent_voice_web_socket.html`**: Abrir directamente en el navegador para probar el modo voz
-
-## Archivos Deprecados
-
-Los siguientes archivos utilizan una version anterior del SDK de Voice Live (WebSocket manual + threading) y fueron reemplazados por las versiones nuevas que usan el SDK `azure-ai-voicelive` (fully async):
-
-| Archivo Deprecado | Reemplazo |
-|---|---|
-| `voice_manager.py` | `voice_live_manager.py` |
-| `voice_websocket.py` | `voice_live_server.py` |
-
-> Estos archivos se mantienen temporalmente hasta confirmar que los nuevos funcionan correctamente en produccion.
+- **`test/test_agent_text_web_socket.html`**: Abrir directamente en el navegador para probar el modo texto
+- **`test/test_agent_voice_web_socket.html`**: Abrir directamente en el navegador para probar el modo voz
 
 ## Build de Produccion
 

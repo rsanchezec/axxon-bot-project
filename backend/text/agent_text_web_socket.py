@@ -55,12 +55,15 @@ from azure.identity import DefaultAzureCredential
 # load_dotenv: carga las variables del archivo .env al entorno del proceso
 from dotenv import load_dotenv
 
+# pathlib: para construir rutas de archivos de forma portable
+from pathlib import Path
+
 # ----------------------------------------------------------------------------------
 # CONFIGURACION INICIAL
 # ----------------------------------------------------------------------------------
 
-# Cargar las variables de entorno desde el archivo .env (ej: FOUNDRY_PROJECT_ENDPOINT)
-load_dotenv()
+# Cargar las variables de entorno desde el archivo .env en la carpeta padre (backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # Configurar el sistema de logging para que imprima fecha, nombre del modulo y nivel
 logging.basicConfig(

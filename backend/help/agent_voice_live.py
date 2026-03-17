@@ -67,6 +67,9 @@ from datetime import datetime
 # load_dotenv: carga variables de entorno desde el archivo .env
 from dotenv import load_dotenv
 
+# pathlib: para construir rutas de archivos de forma portable
+from pathlib import Path
+
 # DefaultAzureCredential: autenticacion automatica con Azure (az login, managed identity, etc.)
 from azure.identity import DefaultAzureCredential
 
@@ -629,8 +632,8 @@ if __name__ == "__main__":
             format='%(asctime)s:%(name)s:%(levelname)s:%(message)s'
         )
 
-        # Cargar variables de entorno
-        load_dotenv("./.env", override=True)
+        # Cargar variables de entorno desde la carpeta padre (backend/)
+        load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
         # Manejador de señales para cierre limpio con Ctrl+C
         def signal_handler(signum, frame):

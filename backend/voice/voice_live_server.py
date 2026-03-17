@@ -46,9 +46,11 @@ import logging
 import asyncio
 from voice_live_manager import VoiceLiveSession
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Cargar .env desde la carpeta padre (backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

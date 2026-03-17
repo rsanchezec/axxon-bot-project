@@ -12,41 +12,38 @@ El frontend es una app React.js (Vite) con dark theme que integra ambos modos en
 
 ```
 axxon-bot-project/
-├── CLAUDE.md                          # Este archivo
-├── frontend/                          # App React.js (Vite, puerto 5173)
+├── CLAUDE.md                              # Este archivo
+├── README.md                              # Documentacion del proyecto
+├── .gitignore                             # Archivos excluidos de git
+├── frontend/                              # App React.js (Vite, puerto 5173)
 │   ├── src/
-│   │   ├── App.jsx                    # Orquestador principal
-│   │   ├── utils/userId.js            # Genera user_id unico por tab (sessionStorage)
+│   │   ├── App.jsx                        # Orquestador principal
+│   │   ├── utils/userId.js                # Genera user_id unico por tab (sessionStorage)
 │   │   ├── hooks/
-│   │   │   ├── useTextWebSocket.js    # Hook WebSocket texto (puerto 8000)
-│   │   │   ├── useVoiceWebSocket.js   # Hook WebSocket voz (puerto 8001)
-│   │   │   └── useAudioPlayback.js    # Hook reproduccion audio PCM
+│   │   │   ├── useTextWebSocket.js        # Hook WebSocket texto (puerto 8000)
+│   │   │   ├── useVoiceWebSocket.js       # Hook WebSocket voz (puerto 8001)
+│   │   │   └── useAudioPlayback.js        # Hook reproduccion audio PCM
 │   │   └── components/
-│   │       ├── Header.jsx             # Titulo, thread ID, estado conexion
-│   │       ├── ChatWindow.jsx         # Area de mensajes con scroll
-│   │       ├── MessageBubble.jsx      # Burbuja individual
-│   │       └── InputBar.jsx           # Input texto + boton mic + boton enviar
+│   │       ├── Header.jsx                 # Titulo, thread ID, estado conexion
+│   │       ├── ChatWindow.jsx             # Area de mensajes con scroll
+│   │       ├── MessageBubble.jsx          # Burbuja individual
+│   │       └── InputBar.jsx               # Input texto + boton mic + boton enviar
 │   └── package.json
 ├── backend/
-│   ├── .env                           # Variables de entorno (credenciales Azure)
-│   ├── .venv/                         # Virtual environment (Python 3.14, gestionado con uv)
-│   ├── requirements.txt               # Dependencias pip
-│   ├── logs/                          # Logs de sesiones de voz
-│   │
-│   ├── # === MODO TEXTO ===
-│   ├── agent_text_web_socket.py       # Servidor FastAPI WebSocket para chat de texto (puerto 8000)
-│   ├── use_existing_agent.py          # Script CLI para chatear con el agente (standalone)
-│   ├── test_agent_text_web_socket.html # Cliente de prueba HTML para modo texto
-│   │
-│   ├── # === MODO VOZ (SDK NUEVO - ACTIVOS) ===
-│   ├── voice_live_manager.py          # Clase VoiceLiveSession: conexion async con Azure Voice Live SDK
-│   ├── voice_live_server.py           # Servidor FastAPI WebSocket para voz (puerto 8001)
-│   ├── agent_voice_live.py            # Cliente standalone de voz (microfono + altavoces, para testing)
-│   ├── test_agent_voice_web_socket.html # Cliente de prueba HTML para modo voz
-│   │
-│   ├── # === MODO VOZ (SDK VIEJO - DEPRECADOS) ===
-│   ├── voice_manager.py               # DEPRECADO: usaba websocket-client manual + threading
-│   └── voice_websocket.py             # DEPRECADO: usaba VoiceManager viejo
+│   ├── .env                               # Variables de entorno (credenciales Azure)
+│   ├── .venv/                             # Virtual environment (Python 3.14, gestionado con uv)
+│   ├── requirements.txt                   # Dependencias pip
+│   ├── text/
+│   │   └── agent_text_web_socket.py       # Servidor FastAPI WebSocket texto (puerto 8000)
+│   ├── voice/
+│   │   ├── voice_live_manager.py          # Clase VoiceLiveSession: conexion async Azure Voice Live
+│   │   └── voice_live_server.py           # Servidor FastAPI WebSocket voz (puerto 8001)
+│   ├── test/
+│   │   ├── test_agent_text_web_socket.html  # Cliente de prueba HTML (texto)
+│   │   └── test_agent_voice_web_socket.html # Cliente de prueba HTML (voz)
+│   └── help/
+│       ├── agent_voice_live.py            # Cliente standalone voz (mic + altavoces, referencia)
+│       └── use_existing_agent.py          # Script CLI para chatear con el agente (standalone)
 ```
 
 ## Stack Tecnologico
@@ -87,16 +84,16 @@ npm run build        # Build de produccion
 
 ```bash
 # Modo texto - servidor WebSocket en puerto 8000
-uv run .\agent_text_web_socket.py
+uv run text\agent_text_web_socket.py
 
 # Modo voz - servidor WebSocket en puerto 8001
-uv run .\voice_live_server.py
+uv run voice\voice_live_server.py
 
-# Modo voz - cliente standalone con microfono y altavoces (testing)
-uv run .\agent_voice_live.py
+# Modo voz - cliente standalone con microfono y altavoces (testing/referencia)
+uv run help\agent_voice_live.py
 
 # Chat de texto por CLI (sin servidor)
-uv run .\use_existing_agent.py
+uv run help\use_existing_agent.py
 
 # Instalar dependencias
 uv pip install -r requirements.txt
@@ -134,14 +131,6 @@ La sesion de Voice Live se configura con:
 - Reduccion de ruido: `azure_deep_noise_suppression`
 - Cancelacion de eco: `server_echo_cancellation`
 - Voz del agente: `es-AR-ElenaNeural` (espanol argentino)
-
-## Archivos Deprecados
-
-Los siguientes archivos usan el SDK viejo de Voice Live (WebSocket manual + threading) y fueron reemplazados:
-- `voice_manager.py` -> reemplazado por `voice_live_manager.py`
-- `voice_websocket.py` -> reemplazado por `voice_live_server.py`
-
-No borrarlos todavia hasta confirmar que los nuevos funcionan correctamente en produccion.
 
 ## Convenciones
 
