@@ -21,12 +21,19 @@ import base64
 import logging
 import asyncio
 import threading
-import numpy as np
-import sounddevice as sd
 from collections import deque
 from typing import Optional, Callable, Any
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.voicelive.aio import connect, AgentSessionConfig
+
+# numpy y sounddevice solo se usan para AudioPlayerAsync (testing local con mic/altavoces)
+# En el servidor (Docker/Azure), enable_local_audio=False y no se necesitan
+try:
+    import numpy as np
+    import sounddevice as sd
+    _HAS_AUDIO_LIBS = True
+except ImportError:
+    _HAS_AUDIO_LIBS = False
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +85,12 @@ def _sdk_event_to_dict(raw_event) -> dict:
 
 class AudioPlayerAsync:
     """Reproduce audio usando un buffer en cola con sounddevice.
-    Usado solo cuando enable_local_audio=True (testing local)."""
+    Usado solo cuando enable_local_audio=True (testing local).
+    Requiere numpy y sounddevice instalados."""
 
     def __init__(self):
+        if not _HAS_AUDIO_LIBS:
+            raise ImportError("AudioPlayerAsync requiere numpy y sounddevice. Instala con: pip install numpy sounddevice")
         self.queue = deque()
         self.lock = threading.Lock()
         self.stream = sd.OutputStream(

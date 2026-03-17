@@ -57,9 +57,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Axxon AI Voice API")
 
+# CORS: usar ALLOWED_ORIGINS del entorno (Azure) o localhost por defecto (desarrollo)
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

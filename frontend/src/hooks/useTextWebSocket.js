@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 
-const WS_URL = 'ws://localhost:8000/ws/chat';
+// En desarrollo usa localhost:8000, en produccion usa la variable VITE_TEXT_WS_URL
+const WS_URL = import.meta.env.VITE_TEXT_WS_URL || 'ws://localhost:8000/ws/chat';
 const RECONNECT_DELAY = 3000; // 3 segundos entre reintentos
 const MAX_RECONNECT_DELAY = 15000; // maximo 15 segundos
 

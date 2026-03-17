@@ -13,10 +13,11 @@ env/
 dist/
 build/
 
-# Variables de entorno (credenciales Azure)
+# Variables de entorno y credenciales Azure
 .env
 .env.*
 !.env.example
+set-credentials.sh
 
 # Logs de sesiones de voz
 backend/logs/

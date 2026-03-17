@@ -1,7 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useAudioPlayback } from './useAudioPlayback';
 
-const WS_URL = 'ws://localhost:8001/ws/voice';
+// En desarrollo usa localhost:8001, en produccion usa la variable VITE_VOICE_WS_URL
+const WS_URL = import.meta.env.VITE_VOICE_WS_URL || 'ws://localhost:8001/ws/voice';
 const SAMPLE_RATE = 24000;
 
 /**
