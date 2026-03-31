@@ -11,19 +11,28 @@ const SAMPLE_RATE = 24000;
  * Protocolo:
  *   init_voice -> voice_session_ready -> audio binario bidireccional
  *   Eventos JSON: user_transcript, agent_text, agent_transcript, speech_started
+ *   Avatar: avatar_ice_servers -> avatar_offer -> avatar_answer (WebRTC signaling)
  *
- * Audio: PCM 16-bit, mono, 24kHz
+ * Audio: PCM 16-bit, mono, 24kHz (via WebSocket sin avatar, via WebRTC con avatar)
  *
  * Estados: idle -> connecting -> active
+ *
+ * @param {Object} options
+ * @param {Function} options.onMessage - Callback para agregar mensajes al chat
+ * @param {Object} [options.avatarHooks] - Hooks de useAvatarWebRTC
  */
-export function useVoiceWebSocket({ onMessage }) {
+export function useVoiceWebSocket({ onMessage, avatarHooks }) {
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
   const audioStreamRef = useRef(null);
   const processorRef = useRef(null);
   const sourceNodeRef = useRef(null);
+  const avatarActiveRef = useRef(false);
+  const avatarHooksRef = useRef(avatarHooks);
+  avatarHooksRef.current = avatarHooks;
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
+  const [isAvatarActive, setIsAvatarActive] = useState(false);
   const { playChunk, reset: resetPlayback, cleanup: cleanupPlayback, getContext } = useAudioPlayback();
 
   const stopCapture = useCallback(() => {
@@ -106,13 +115,22 @@ export function useVoiceWebSocket({ onMessage }) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'init_voice', user_id: userId }));
+      const enableAvatar = !!avatarHooksRef.current;
+      ws.send(JSON.stringify({
+        type: 'init_voice',
+        user_id: userId,
+        avatar: enableAvatar,
+      }));
     };
 
     ws.onmessage = async (event) => {
       // Discriminar binario (audio) vs texto (JSON)
       if (event.data instanceof ArrayBuffer) {
-        playChunk(event.data);
+        // Cuando avatar esta activo y WebRTC CONECTADO, el audio llega por WebRTC
+        // No reproducir PCM duplicado
+        if (!avatarActiveRef.current) {
+          playChunk(event.data);
+        }
         return;
       }
 
@@ -141,10 +159,11 @@ export function useVoiceWebSocket({ onMessage }) {
 
         case 'input_audio_buffer.speech_started':
           // El usuario empezo a hablar - interrumpir todo:
-          // 1. Detener audio que esta sonando en el frontend
-          resetPlayback();
+          // 1. Detener audio que esta sonando en el frontend (solo si no hay avatar)
+          if (!avatarActiveRef.current) {
+            resetPlayback();
+          }
           // 2. Cancelar la respuesta del agente en el servidor
-          //    para que deje de generar y enviar mas audio
           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
           }
@@ -152,6 +171,53 @@ export function useVoiceWebSocket({ onMessage }) {
 
         case 'voice_session_stopped':
           onMessage({ type: 'system', text: 'Modo voz desactivado.' });
+          break;
+
+        // --- Avatar WebRTC signaling ---
+        case 'avatar_ice_servers':
+          if (avatarHooksRef.current) {
+            setIsAvatarActive(true);
+
+            // Registrar callbacks ANTES de inicializar
+            avatarHooksRef.current.setCallbacks(
+              // onConnected: WebRTC conectado -> suprimir audio WebSocket
+              () => {
+                console.log('[VoiceWS] Avatar WebRTC connected - suppressing WebSocket audio');
+                avatarActiveRef.current = true;
+              },
+              // onError: WebRTC fallo -> fallback a audio WebSocket
+              (errorMsg) => {
+                console.warn('[VoiceWS] Avatar WebRTC failed:', errorMsg);
+                avatarActiveRef.current = false;
+                setIsAvatarActive(false);
+                // Notificar al backend que vuelva a enviar audio por WebSocket
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'avatar_failed' }));
+                }
+                onMessage({ type: 'system', text: 'Avatar no disponible, continuando con audio.' });
+              }
+            );
+
+            const sdpOffer = await avatarHooksRef.current.initializeWithIceServers(data.ice_servers);
+            if (sdpOffer && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                type: 'avatar_offer',
+                sdp: sdpOffer,
+              }));
+            }
+          }
+          break;
+
+        case 'avatar_answer':
+          if (avatarHooksRef.current) {
+            await avatarHooksRef.current.handleAnswer(data.sdp);
+          }
+          break;
+
+        case 'avatar_unavailable':
+          avatarActiveRef.current = false;
+          setIsAvatarActive(false);
+          onMessage({ type: 'system', text: data.message || 'Avatar no disponible.' });
           break;
 
         case 'error':
@@ -178,6 +244,13 @@ export function useVoiceWebSocket({ onMessage }) {
   const stopVoice = useCallback(() => {
     stopCapture();
 
+    // Limpiar avatar WebRTC
+    if (avatarHooksRef.current) {
+      avatarHooksRef.current.cleanup();
+    }
+    avatarActiveRef.current = false;
+    setIsAvatarActive(false);
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'stop_voice' }));
       setTimeout(() => {
@@ -197,13 +270,18 @@ export function useVoiceWebSocket({ onMessage }) {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
     }
-    resetPlayback();
+    if (!avatarActiveRef.current) {
+      resetPlayback();
+    }
   }, [resetPlayback]);
 
   // Cleanup al desmontar
   useEffect(() => {
     return () => {
       stopCapture();
+      if (avatarHooksRef.current) {
+        avatarHooksRef.current.cleanup();
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -217,5 +295,6 @@ export function useVoiceWebSocket({ onMessage }) {
     cancelResponse,
     isVoiceActive,
     isVoiceConnecting,
+    isAvatarActive,
   };
 }

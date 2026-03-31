@@ -41,6 +41,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
 import json
+import base64
 import uvicorn
 import logging
 import asyncio
@@ -85,25 +86,23 @@ class VoiceLiveConnectionManager:
         # Diccionario: user_id -> (websocket, session)
         self.active_sessions: Dict[str, tuple[WebSocket, VoiceLiveSession]] = {}
 
-    async def start_session(self, websocket: WebSocket, user_id: str) -> str:
+    async def start_session(self, websocket: WebSocket, user_id: str, enable_avatar: bool = False) -> str:
         """
         Inicia una sesion de voz para un usuario.
 
         Args:
             websocket: Conexion WebSocket del cliente
             user_id: Identificador del usuario
+            enable_avatar: Si True, habilita avatar visual con WebRTC
 
         Returns:
             session_id del servicio Voice Live
         """
         try:
             # Crear sesion (sin audio local - el audio se envia al frontend)
-            session = VoiceLiveSession(enable_local_audio=False)
+            session = VoiceLiveSession(enable_local_audio=False, enable_avatar=enable_avatar)
 
             # --- Configurar callbacks async ---
-            # Al ser fully async, no necesitamos run_coroutine_threadsafe
-            # ni pasar el event_loop manualmente
-
             async def on_session_created(session_id: str):
                 await _send_event(websocket, "voice_session_ready", {"session_id": session_id})
 
@@ -124,19 +123,55 @@ class VoiceLiveConnectionManager:
                 logger.info("Notifying frontend: user interrupted")
                 await _send_event(websocket, "input_audio_buffer.speech_started", {})
 
+            # Callbacks de avatar (WebRTC signaling)
+            async def on_avatar_ice_servers(ice_servers: list):
+                servers_data = []
+                for server in ice_servers:
+                    if isinstance(server, dict):
+                        servers_data.append(server)
+                await _send_event(websocket, "avatar_ice_servers", {"ice_servers": servers_data})
+                logger.info(f"Sent {len(servers_data)} ICE servers to frontend")
+
+            async def on_avatar_answer(server_sdp: str):
+                # Azure puede enviar el SDP answer en base64 o texto plano
+                # Intentar detectar y normalizar al formato que espera el frontend: base64(JSON)
+                try:
+                    # Intentar decodificar como base64 para ver si ya viene codificado
+                    decoded = base64.b64decode(server_sdp).decode('utf-8')
+                    # Si es JSON valido, asumir que ya viene en el formato correcto
+                    json.loads(decoded)
+                    server_sdp_b64 = server_sdp  # Ya esta en base64, pasar tal cual
+                    logger.info("Server SDP already in base64 format")
+                except Exception:
+                    # No es base64 valido, asumir que es texto plano y codificar
+                    sdp_json = json.dumps({"type": "answer", "sdp": server_sdp})
+                    server_sdp_b64 = base64.b64encode(sdp_json.encode('utf-8')).decode('utf-8')
+                    logger.info("Encoded server SDP to base64")
+
+                await _send_event(websocket, "avatar_answer", {"sdp": server_sdp_b64})
+                logger.info("Sent avatar SDP answer to frontend")
+
             session.on_session_created = on_session_created
             session.on_user_transcript = on_user_transcript
             session.on_agent_response = on_agent_text
             session.on_agent_audio_transcript = on_agent_transcript
             session.on_agent_audio = on_agent_audio
             session.on_user_speech_started = on_user_speech_started
+            session.on_avatar_ice_servers = on_avatar_ice_servers
+            session.on_avatar_answer = on_avatar_answer
 
             # Iniciar sesion de voz
             result = await session.start()
 
+            # Si se pidio avatar pero fallo (fallback), notificar al frontend
+            if enable_avatar and not session.enable_avatar:
+                await _send_event(websocket, "avatar_unavailable", {
+                    "message": "Avatar no disponible, continuando solo con audio"
+                })
+
             # Guardar sesion activa
             self.active_sessions[user_id] = (websocket, session)
-            logger.info(f"Voice session started for user {user_id}")
+            logger.info(f"Voice session started for user {user_id} (avatar={'enabled' if session.enable_avatar else 'disabled'})")
             return result
 
         except Exception as e:
@@ -175,6 +210,27 @@ class VoiceLiveConnectionManager:
             await session.stop()
             del self.active_sessions[user_id]
             logger.info(f"Voice session stopped for user {user_id}")
+
+    async def send_avatar_offer(self, user_id: str, client_sdp: str) -> None:
+        """Reenvia el SDP offer del avatar al servicio Voice Live."""
+        if user_id not in self.active_sessions:
+            logger.warning(f"No active voice session for user {user_id}")
+            return
+
+        _, session = self.active_sessions[user_id]
+        try:
+            await session.send_avatar_offer(client_sdp)
+            logger.info(f"Avatar SDP offer forwarded for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error sending avatar offer: {e}")
+
+    def disable_avatar(self, user_id: str) -> None:
+        """Desactiva el avatar para un usuario y reanuda audio por WebSocket."""
+        if user_id not in self.active_sessions:
+            return
+        _, session = self.active_sessions[user_id]
+        session.disable_avatar()
+        logger.info(f"Avatar disabled for user {user_id} - resuming WebSocket audio")
 
     def get_stats(self) -> dict:
         """Estadisticas de sesiones activas."""
@@ -245,12 +301,13 @@ async def websocket_voice_endpoint(websocket: WebSocket):
             return
 
         user_id = init_data.get("user_id", "anonymous_user")
+        enable_avatar = init_data.get("avatar", False)
         current_user_id = user_id
 
-        # Iniciar sesion de voz
+        # Iniciar sesion de voz (con o sin avatar)
         try:
-            session_id = await connection_manager.start_session(websocket, user_id)
-            logger.info(f"Voice session {session_id} started for user {user_id}")
+            session_id = await connection_manager.start_session(websocket, user_id, enable_avatar=enable_avatar)
+            logger.info(f"Voice session {session_id} started for user {user_id} (avatar={enable_avatar})")
         except Exception as e:
             await websocket.send_json({
                 "type": "error",
@@ -278,6 +335,16 @@ async def websocket_voice_endpoint(websocket: WebSocket):
                     elif message_type == "response.cancel":
                         logger.info(f"User {user_id} interrupted agent - cancelling response")
                         await connection_manager.cancel_response(user_id)
+
+                    elif message_type == "avatar_offer":
+                        client_sdp = data.get("sdp", "")
+                        if client_sdp:
+                            logger.info(f"Received avatar SDP offer from user {user_id}")
+                            await connection_manager.send_avatar_offer(user_id, client_sdp)
+
+                    elif message_type == "avatar_failed":
+                        logger.info(f"Avatar failed for user {user_id} - disabling and resuming WebSocket audio")
+                        connection_manager.disable_avatar(user_id)
 
                 # Audio binario del frontend
                 elif "bytes" in message:

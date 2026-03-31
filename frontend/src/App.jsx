@@ -2,8 +2,10 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Header } from './components/Header';
 import { ChatWindow } from './components/ChatWindow';
 import { InputBar } from './components/InputBar';
+import { AvatarStage } from './components/AvatarStage';
 import { useTextWebSocket } from './hooks/useTextWebSocket';
 import { useVoiceWebSocket } from './hooks/useVoiceWebSocket';
+import { useAvatarWebRTC } from './hooks/useAvatarWebRTC';
 import { getUserId } from './utils/userId';
 import './App.css';
 
@@ -26,13 +28,34 @@ function App() {
     isProcessing,
   } = useTextWebSocket({ onMessage: addMessage });
 
-  // Hook de voz
+  // Hook de avatar WebRTC
+  const {
+    videoRef: avatarVideoRef,
+    audioRef: avatarAudioRef,
+    avatarState,
+    setCallbacks: setAvatarCallbacks,
+    initializeWithIceServers,
+    handleAnswer,
+    cleanup: cleanupAvatar,
+  } = useAvatarWebRTC();
+
+  // Memoizar avatarHooks para evitar re-renders infinitos
+  const avatarHooks = useMemo(
+    () => ({ initializeWithIceServers, handleAnswer, setCallbacks: setAvatarCallbacks, cleanup: cleanupAvatar }),
+    [initializeWithIceServers, handleAnswer, setAvatarCallbacks, cleanupAvatar]
+  );
+
+  // Hook de voz (con avatar hooks integrados)
   const {
     startVoice,
     stopVoice,
     isVoiceActive,
     isVoiceConnecting,
-  } = useVoiceWebSocket({ onMessage: addMessage });
+    isAvatarActive,
+  } = useVoiceWebSocket({
+    onMessage: addMessage,
+    avatarHooks,
+  });
 
   // Conectar al montar
   useEffect(() => {
@@ -61,7 +84,10 @@ function App() {
         isConnected={isConnected}
         isVoiceActive={isVoiceActive}
       />
-      <ChatWindow messages={messages} isProcessing={isProcessing} />
+      <ChatWindow
+        messages={messages}
+        isProcessing={isProcessing}
+      />
       <InputBar
         onSend={handleSend}
         onMicToggle={handleMicToggle}
@@ -69,6 +95,12 @@ function App() {
         isVoiceConnecting={isVoiceConnecting}
         isConnected={isConnected}
         isProcessing={isProcessing}
+      />
+      <AvatarStage
+        videoRef={avatarVideoRef}
+        audioRef={avatarAudioRef}
+        avatarState={avatarState}
+        isVisible={isVoiceActive && isAvatarActive}
       />
     </div>
   );

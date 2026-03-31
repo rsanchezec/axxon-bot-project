@@ -25,6 +25,19 @@ from collections import deque
 from typing import Optional, Callable, Any
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.voicelive.aio import connect, AgentSessionConfig
+from azure.ai.voicelive.models import (
+    InputAudioFormat,
+    Modality,
+    OutputAudioFormat,
+    RequestSession,
+    ServerEventType,
+    AzureStandardVoice,
+    AudioNoiseReduction,
+    AudioEchoCancellation,
+    AzureSemanticVadMultilingual,
+    AvatarConfig,
+    AvatarConfigTypes,
+)
 
 # numpy y sounddevice solo se usan para AudioPlayerAsync (testing local con mic/altavoces)
 # En el servidor (Docker/Azure), enable_local_audio=False y no se necesitan
@@ -164,13 +177,16 @@ class VoiceLiveSession:
         await session.stop()
     """
 
-    def __init__(self, enable_local_audio: bool = False):
+    def __init__(self, enable_local_audio: bool = False, enable_avatar: bool = False):
         """
         Args:
             enable_local_audio: Si True, reproduce audio en altavoces locales (testing).
                                 Si False, solo envia audio via callbacks (servidor).
+            enable_avatar: Si True, habilita avatar visual con WebRTC.
         """
         self.enable_local_audio = enable_local_audio
+        self.enable_avatar = enable_avatar
+        self.avatar_active = False  # Se activa cuando WebRTC conecta
         self._connection = None
         self._connection_cm = None
         self._credential = None
@@ -186,6 +202,10 @@ class VoiceLiveSession:
         self.on_agent_audio_transcript: Optional[Callable[[str], Any]] = None
         self.on_agent_audio: Optional[Callable[[bytes], Any]] = None
         self.on_user_speech_started: Optional[Callable[[], Any]] = None
+
+        # Callbacks para avatar (WebRTC signaling)
+        self.on_avatar_ice_servers: Optional[Callable[[list], Any]] = None
+        self.on_avatar_answer: Optional[Callable[[str], Any]] = None
 
     async def start(self) -> str:
         """
@@ -234,42 +254,44 @@ class VoiceLiveSession:
 
         logger.info("Connection established with Voice Live")
 
-        # --- Configurar sesion de voz ---
-        session_config = {
-            "turn_detection": {
-                "type": "azure_semantic_vad",
-                "threshold": 0.7,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 500,
-                "remove_filler_words": True,
-                "end_of_utterance_detection": {
-                    "model": "semantic_detection_v1",
-                    "threshold": 0.5,
-                    "timeout": 3,
-                },
-            },
-            "input_audio_noise_reduction": {
-                "type": "azure_deep_noise_suppression"
-            },
-            "input_audio_echo_cancellation": {
-                "type": "server_echo_cancellation"
-            },
-            "voice": {
-                "name": "es-AR-ElenaNeural",
-                "type": "azure-standard",
-                "temperature": 0.8,
-                "speaking-rate": 1
-            },
-        }
+        # --- Configurar sesion de voz usando objetos tipados del SDK ---
+        voice = AzureStandardVoice(name="es-AR-ElenaNeural")
+
+        # Configuracion base (sin avatar)
+        modalities = [Modality.TEXT, Modality.AUDIO]
+        avatar_config = None
+
+        # --- Configurar avatar si esta habilitado ---
+        if self.enable_avatar:
+            avatar_character = os.environ.get("AVATAR_CHARACTER", "layla")
+            avatar_model = os.environ.get("AVATAR_MODEL", "vasa-1")
+            modalities.append(Modality.AVATAR)
+            avatar_config = AvatarConfig(
+                type=AvatarConfigTypes.PHOTO_AVATAR,
+                character=avatar_character,
+                model=avatar_model,
+            )
+            logger.info(f"Avatar enabled: character={avatar_character}, model={avatar_model}")
+
+        session_config = RequestSession(
+            modalities=modalities,
+            voice=voice,
+            input_audio_format=InputAudioFormat.PCM16,
+            output_audio_format=OutputAudioFormat.PCM16,
+            turn_detection=AzureSemanticVadMultilingual(),
+            input_audio_echo_cancellation=AudioEchoCancellation(),
+            input_audio_noise_reduction=AudioNoiseReduction(
+                type="azure_deep_noise_suppression"
+            ),
+            avatar=avatar_config,
+        )
 
         try:
             await self._connection.session.update(session=session_config)
-            logger.info("Session configured via session.update()")
+            logger.info("Session configured successfully")
         except Exception as e:
-            logger.warning(f"session.update() failed: {e}, trying raw send()...")
-            session_update = {"type": "session.update", "session": session_config, "event_id": ""}
-            await self._connection.send(json.dumps(session_update))
-            logger.info("Session configured via raw send()")
+            logger.error(f"session.update() failed: {e}")
+            raise
 
         # --- Audio player local (solo para testing) ---
         if self.enable_local_audio:
@@ -314,6 +336,28 @@ class VoiceLiveSession:
         except Exception as e:
             logger.error(f"Error cancelling response: {e}")
 
+    async def send_avatar_offer(self, client_sdp_b64: str) -> None:
+        """Reenvia el SDP offer del frontend a Azure Voice Live para conectar el avatar WebRTC."""
+        if not self.is_running or not self._connection:
+            raise ValueError("Voice session not running")
+
+        # El frontend envia el SDP codificado en base64 como btoa(JSON.stringify({type:"offer",sdp:"v=0..."}))
+        # Azure ESPERA recibir el base64 directamente, NO decodificado
+        # El SDK serializa el dict a JSON internamente - NO usar json.dumps()
+        avatar_connect_msg = {
+            "type": "session.avatar.connect",
+            "client_sdp": client_sdp_b64,
+        }
+        await self._connection.send(avatar_connect_msg)  # Enviar dict directamente
+        logger.info("Avatar SDP offer forwarded to Azure (base64)")
+
+    def disable_avatar(self) -> None:
+        """Desactiva el avatar y reanuda el envio de audio por WebSocket."""
+        if self.avatar_active:
+            self.avatar_active = False
+            self.enable_avatar = False
+            logger.info("Avatar disabled - resuming WebSocket audio forwarding")
+
     async def _call_callback(self, callback: Optional[Callable], *args) -> None:
         """Llama a un callback async de forma segura."""
         if callback is None:
@@ -347,57 +391,104 @@ class VoiceLiveSession:
                     continue
 
                 try:
-                    event = _sdk_event_to_dict(raw_event)
-                    event_type = event.get("type", "unknown")
+                    # Intentar obtener el tipo del evento usando ServerEventType
+                    event_type = getattr(raw_event, "type", None)
+                    event_dict = _sdk_event_to_dict(raw_event)
+                    event_type_str = str(event_type) if event_type else event_dict.get("type", "unknown")
 
-                    if event_type == "session.created":
-                        session_id = event.get("session", {}).get("id", "unknown")
+                    if event_type == ServerEventType.SESSION_CREATED or event_type_str == "session.created":
+                        session_obj = getattr(raw_event, "session", None)
+                        session_id = getattr(session_obj, "id", None) or event_dict.get("session", {}).get("id", "unknown")
                         logger.info(f"Session created: {session_id}")
                         await self._call_callback(self.on_session_created, session_id)
 
-                    elif event_type == "conversation.item.input_audio_transcription.completed":
-                        transcript = event.get("transcript", "")
+                    elif event_type == ServerEventType.SESSION_UPDATED or event_type_str == "session.updated":
+                        # Extraer ICE servers del avatar si estan presentes
+                        session_obj = getattr(raw_event, "session", None)
+                        avatar_obj = getattr(session_obj, "avatar", None) if session_obj else None
+                        ice_servers = getattr(avatar_obj, "ice_servers", None) if avatar_obj else None
+
+                        if not ice_servers:
+                            session_data = event_dict.get("session", {})
+                            avatar_data = session_data.get("avatar", {})
+                            ice_servers = avatar_data.get("ice_servers", [])
+
+                        if ice_servers and self.enable_avatar:
+                            ice_servers_list = []
+                            for server in ice_servers:
+                                if isinstance(server, dict):
+                                    ice_servers_list.append(server)
+                                else:
+                                    server_dict = {}
+                                    for attr in ("urls", "username", "credential"):
+                                        val = getattr(server, attr, None)
+                                        if val is not None:
+                                            server_dict[attr] = val
+                                    if server_dict:
+                                        ice_servers_list.append(server_dict)
+
+                            logger.info(f"Avatar session updated, ICE servers received: {len(ice_servers_list)}")
+                            await self._call_callback(self.on_avatar_ice_servers, ice_servers_list)
+
+                    elif event_type == ServerEventType.SESSION_AVATAR_CONNECTING or event_type_str == "session.avatar.connecting":
+                        server_sdp = getattr(raw_event, "server_sdp", None) or event_dict.get("server_sdp", "")
+                        if server_sdp:
+                            self.avatar_active = True
+                            logger.info("Avatar SDP answer received - activating avatar audio mode")
+                            await self._call_callback(self.on_avatar_answer, server_sdp)
+
+                    elif event_type == ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED or event_type_str == "conversation.item.input_audio_transcription.completed":
+                        transcript = getattr(raw_event, "transcript", None) or event_dict.get("transcript", "")
                         logger.info(f"User transcript: {transcript}")
                         await self._call_callback(self.on_user_transcript, transcript)
 
-                    elif event_type == "response.text.done":
-                        text = event.get("text", "")
+                    elif event_type == ServerEventType.RESPONSE_TEXT_DONE or event_type_str == "response.text.done":
+                        text = getattr(raw_event, "text", None) or event_dict.get("text", "")
                         logger.info(f"Agent text: {text}")
                         await self._call_callback(self.on_agent_response, text)
 
                     elif event_type == "response.audio_transcript.done":
-                        transcript = event.get("transcript", "")
+                        transcript = event_dict.get("transcript", "")
                         logger.info(f"Agent audio transcript: {transcript}")
                         await self._call_callback(self.on_agent_audio_transcript, transcript)
 
-                    elif event_type == "response.audio.delta":
-                        if event.get("item_id") != last_audio_item_id:
-                            last_audio_item_id = event.get("item_id")
-                        audio_bytes = base64.b64decode(event.get("delta", ""))
-                        if audio_bytes:
-                            if self._audio_player:
-                                self._audio_player.add_data(audio_bytes)
-                            elif self.on_agent_audio:
-                                await self._call_callback(self.on_agent_audio, audio_bytes)
+                    elif event_type == ServerEventType.RESPONSE_AUDIO_DELTA or event_type_str == "response.audio.delta":
+                        item_id = getattr(raw_event, "item_id", None) or event_dict.get("item_id")
+                        if item_id != last_audio_item_id:
+                            last_audio_item_id = item_id
 
-                    elif event_type == "input_audio_buffer.speech_started":
+                        # Cuando avatar esta activo, el audio llega por WebRTC (lip-sync)
+                        # No reenviar por WebSocket para evitar audio duplicado
+                        if self.avatar_active:
+                            pass
+                        else:
+                            delta = getattr(raw_event, "delta", None) or event_dict.get("delta", "")
+                            audio_bytes = base64.b64decode(delta) if delta else b""
+                            if audio_bytes:
+                                if self._audio_player:
+                                    self._audio_player.add_data(audio_bytes)
+                                elif self.on_agent_audio:
+                                    await self._call_callback(self.on_agent_audio, audio_bytes)
+
+                    elif event_type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED or event_type_str == "input_audio_buffer.speech_started":
                         logger.info("User started speaking")
                         if self._audio_player:
                             self._audio_player.stop()
                         await self._call_callback(self.on_user_speech_started)
 
-                    elif event_type == "error":
-                        error_details = event.get("error", {})
-                        if isinstance(error_details, dict):
-                            logger.error(f"Voice Live error: type={error_details.get('type')}, "
-                                         f"code={error_details.get('code')}, "
-                                         f"message={error_details.get('message')}")
+                    elif event_type == ServerEventType.ERROR or event_type_str == "error":
+                        error_obj = getattr(raw_event, "error", None)
+                        if error_obj:
+                            error_msg = getattr(error_obj, "message", str(error_obj))
+                            logger.error(f"Voice Live error: {error_msg}")
                         else:
-                            logger.error(f"Voice Live error: {error_details}")
-
-                    elif event_type == "warning":
-                        warn_msg = event.get("message", "") or event.get("warning", "")
-                        logger.warning(f"Voice Live warning: {warn_msg}")
+                            error_details = event_dict.get("error", {})
+                            if isinstance(error_details, dict):
+                                logger.error(f"Voice Live error: type={error_details.get('type')}, "
+                                             f"code={error_details.get('code')}, "
+                                             f"message={error_details.get('message')}")
+                            else:
+                                logger.error(f"Voice Live error: {error_details}")
 
                 except Exception as e:
                     logger.error(f"Error processing event: {e}")

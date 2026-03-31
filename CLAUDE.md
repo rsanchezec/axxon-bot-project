@@ -4,9 +4,9 @@
 
 Chatbot de IA para Axxon que usa Azure AI Foundry como backend. Soporta dos modos de comunicacion:
 - **Modo Texto**: Chat por WebSocket con un agente de AI Foundry (conversations + responses API)
-- **Modo Voz**: Conversacion en tiempo real usando Azure Voice Live API
+- **Modo Voz con Avatar**: Conversacion en tiempo real usando Azure Voice Live API con avatar visual (Azure Photo Avatar VASA-1) en popup flotante
 
-El frontend es una app React.js (Vite) con dark theme que integra ambos modos en una sola interfaz.
+El frontend es una app React.js (Vite) con dark theme que integra ambos modos en una sola interfaz. El avatar aparece en la esquina inferior derecha durante el modo voz.
 
 ## Estructura del Proyecto
 
@@ -21,13 +21,15 @@ axxon-bot-project/
 │   │   ├── utils/userId.js                # Genera user_id unico por tab (sessionStorage)
 │   │   ├── hooks/
 │   │   │   ├── useTextWebSocket.js        # Hook WebSocket texto (puerto 8000)
-│   │   │   ├── useVoiceWebSocket.js       # Hook WebSocket voz (puerto 8001)
+│   │   │   ├── useVoiceWebSocket.js       # Hook WebSocket voz (puerto 8001) + signaling WebRTC
+│   │   │   ├── useAvatarWebRTC.js         # Hook WebRTC para avatar (RTCPeerConnection, SDP)
 │   │   │   └── useAudioPlayback.js        # Hook reproduccion audio PCM
 │   │   └── components/
 │   │       ├── Header.jsx                 # Titulo, thread ID, estado conexion
 │   │       ├── ChatWindow.jsx             # Area de mensajes con scroll
 │   │       ├── MessageBubble.jsx          # Burbuja individual
-│   │       └── InputBar.jsx               # Input texto + boton mic + boton enviar
+│   │       ├── InputBar.jsx               # Input texto + boton mic + boton enviar
+│   │       └── AvatarStage.jsx            # Popup flotante con video del avatar (esquina inferior derecha)
 │   └── package.json
 ├── backend/
 │   ├── .env                               # Variables de entorno (credenciales Azure)
@@ -65,6 +67,8 @@ MODEL_DEPLOYMENT_NAME=      # Modelo desplegado (gpt-5.2-chat)
 AI_SEARCH_CONNECTION_NAME=  # Nombre de la conexion a AI Search
 AI_SEARCH_INDEX_NAME=       # Indice RAG multi-modal
 VOICELIVE_ENDPOINT=         # Endpoint del servicio Voice Live (para modo voz)
+AVATAR_CHARACTER=           # Personaje del avatar (Camila, Lisa, etc.)
+AVATAR_MODEL=               # Modelo de avatar (vasa-1)
 AZURE_AGENT_NAME=           # Nombre del agente en AI Foundry (default: "axxon-agent")
 PROJECT_NAME=               # Nombre del proyecto en AI Foundry
 ```
@@ -110,27 +114,39 @@ Frontend HTML  ──WebSocket──>  agent_text_web_socket.py  ──SDK──
 - Cada usuario tiene su propia conversacion persistente (reconexion mantiene historial)
 - Protocolo: `init` -> `session_ready` -> `message` -> `bot_message`
 
-## Arquitectura Modo Voz
+## Arquitectura Modo Voz con Avatar
 
 ```
-Frontend HTML  ──WebSocket──>  voice_live_server.py  ──SDK──>  Azure Voice Live
-(puerto 8001, /ws/voice)        VoiceLiveSession                (realtime audio)
-                                 (voice_live_manager.py)
+Frontend React  ──WebSocket──>  voice_live_server.py  ──SDK──>  Azure Voice Live
+(puerto 8001,      (signaling       VoiceLiveSession              + Avatar (VASA-1)
+ /ws/voice)         WebRTC)         (voice_live_manager.py)
+      │
+      └──WebRTC──> Azure Media Relay ──> Avatar video/audio stream
+         (ICE)
 ```
 
-- Usa SDK `azure-ai-voicelive` con `connect()` + `AgentSessionConfig` (fully async)
-- Audio: PCM 16-bit, mono, 24kHz
-- Protocolo: `init_voice` -> `voice_session_ready` -> audio binario bidireccional
+- Usa SDK `azure-ai-voicelive` con `connect()` + `RequestSession` con `Modality.AVATAR` (fully async)
+- Audio: PCM 16-bit, mono, 24kHz (sin avatar) | WebRTC audio/video (con avatar)
+- Protocolo:
+  - `init_voice` (avatar: true) -> `voice_session_ready`
+  - `avatar_ice_servers` -> `avatar_offer` (SDP base64) -> `avatar_answer` (SDP base64)
+  - Audio binario bidireccional (o WebRTC cuando avatar conecta)
 - Eventos del servidor: `user_transcript`, `agent_text`, `agent_transcript`, `input_audio_buffer.speech_started`
 - El frontend puede enviar `response.cancel` para interrumpir al agente
+- **Avatar**: Popup flotante en esquina inferior derecha con sincronización labial vía WebRTC
 
-## Configuracion de Voz
+## Configuracion de Voz y Avatar
 
 La sesion de Voice Live se configura con:
 - VAD: `azure_semantic_vad` (deteccion de voz semantica)
 - Reduccion de ruido: `azure_deep_noise_suppression`
 - Cancelacion de eco: `server_echo_cancellation`
 - Voz del agente: `es-AR-ElenaNeural` (espanol argentino)
+- Avatar: Azure Photo Avatar con modelo VASA-1, personaje Camila
+  - Video/audio vía WebRTC para latencia mínima
+  - Sincronización labial (lip-sync) en tiempo real
+  - Popup flotante en esquina inferior derecha (320x400px)
+  - Fallback automático a audio si WebRTC falla
 
 ## Convenciones
 

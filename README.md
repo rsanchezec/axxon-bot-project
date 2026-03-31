@@ -1,13 +1,13 @@
 # Axxon AI Assistant
 
-Asistente de inteligencia artificial para Axxon con soporte de chat por texto y conversacion por voz en tiempo real. Utiliza Azure AI Foundry como motor de IA y Azure Voice Live para el modo de voz.
+Asistente de inteligencia artificial para Axxon con soporte de chat por texto y conversacion por voz en tiempo real con avatar visual. Utiliza Azure AI Foundry como motor de IA, Azure Voice Live para el modo de voz, y Azure Photo Avatar (VASA-1) para la representación visual del agente.
 
 ## Descripcion General
 
 Axxon AI Assistant es una aplicacion web que permite a los usuarios interactuar con un agente de IA de dos formas:
 
 - **Modo Texto**: El usuario escribe mensajes y recibe respuestas del agente en formato texto a traves de WebSocket.
-- **Modo Voz**: El usuario habla por microfono y recibe respuestas habladas del agente en tiempo real, con transcripciones visibles en el chat.
+- **Modo Voz con Avatar**: El usuario habla por microfono y recibe respuestas habladas del agente en tiempo real, con transcripciones visibles en el chat. Durante la conversación, un avatar visual (Camila) aparece en un popup flotante mostrando sincronización labial (lip-sync) en tiempo real vía WebRTC.
 
 La aplicacion soporta multiples usuarios simultaneos, cada uno con su propia sesion independiente.
 
@@ -56,17 +56,29 @@ Servidor -> Cliente:  { "type": "bot_message", "text": "Respuesta del agente" }
 
 **Protocolo WebSocket (voz):**
 ```
-Cliente -> Servidor:  { "type": "init_voice", "user_id": "uuid" }
+Cliente -> Servidor:  { "type": "init_voice", "user_id": "uuid", "avatar": true }
 Servidor -> Cliente:  { "type": "voice_session_ready" }
+
+# Signaling WebRTC para avatar (si avatar: true)
+Servidor -> Cliente:  { "type": "avatar_ice_servers", "ice_servers": [...] }
+Cliente -> Servidor:  { "type": "avatar_offer", "sdp": "<base64-encoded-offer>" }
+Servidor -> Cliente:  { "type": "avatar_answer", "sdp": "<base64-encoded-answer>" }
+
+# Audio y transcripciones
 Cliente -> Servidor:  [ArrayBuffer - PCM audio del microfono]
-Servidor -> Cliente:  [ArrayBuffer - PCM audio de respuesta]
+Servidor -> Cliente:  [ArrayBuffer - PCM audio de respuesta] (solo sin avatar)
 Servidor -> Cliente:  { "type": "user_transcript", "text": "..." }
 Servidor -> Cliente:  { "type": "agent_text", "text": "..." }
 Servidor -> Cliente:  { "type": "agent_transcript", "text": "..." }
 Servidor -> Cliente:  { "type": "input_audio_buffer.speech_started" }
+
+# Control
 Cliente -> Servidor:  { "type": "response.cancel" }  (interrumpir respuesta)
+Cliente -> Servidor:  { "type": "avatar_failed" }  (fallback a audio WebSocket)
 Cliente -> Servidor:  { "type": "stop_voice" }  (finalizar sesion)
 ```
+
+**Nota:** Cuando el avatar está activo, el audio y video llegan vía WebRTC (no por WebSocket) para lograr sincronización labial perfecta.
 
 **Especificaciones de Audio:**
 - Formato: PCM 16-bit signed, little-endian
@@ -97,12 +109,14 @@ axxon-bot-project/
 │       ├── hooks/
 │       │   ├── useTextWebSocket.js          # Hook WebSocket texto (configurable)
 │       │   ├── useVoiceWebSocket.js         # Hook WebSocket voz (configurable)
+│       │   ├── useAvatarWebRTC.js           # Hook WebRTC para avatar
 │       │   └── useAudioPlayback.js          # Hook reproduccion audio PCM
 │       └── components/
 │           ├── Header.jsx / Header.css
 │           ├── ChatWindow.jsx / ChatWindow.css
 │           ├── MessageBubble.jsx / MessageBubble.css
-│           └── InputBar.jsx / InputBar.css
+│           ├── InputBar.jsx / InputBar.css
+│           └── AvatarStage.jsx / AvatarStage.css  # Popup flotante con video del avatar
 │
 ├── backend/                                 # Servidores Python (FastAPI + uvicorn)
 │   ├── .env                                 # Variables de entorno (NO se sube a git)
@@ -188,6 +202,10 @@ AI_SEARCH_INDEX_NAME=nombre-indice-rag
 
 # Azure Voice Live - Modo Voz
 VOICELIVE_ENDPOINT=wss://tu-endpoint-voice.azure.com
+
+# Azure Avatar - Modo Voz Visual
+AVATAR_CHARACTER=Camila                     # Personaje del avatar (Camila, Lisa, etc.)
+AVATAR_MODEL=vasa-1                         # Modelo de avatar (vasa-1)
 
 # Agente
 AZURE_AGENT_NAME=axxon-agent
@@ -440,17 +458,48 @@ curl https://<frontend-fqdn>/health
 3. Presionar Enter o el boton de enviar (flecha)
 4. La respuesta del agente aparecera en el chat
 
-### Conversacion por Voz
+### Conversacion por Voz con Avatar
 1. Hacer clic en el boton del microfono (se pondra naranja mientras conecta)
 2. Cuando se ponga rojo, el modo voz esta activo
-3. Hablar normalmente - el agente escuchara, transcribira y respondera con voz
-4. Para interrumpir al agente, simplemente empezar a hablar
-5. Hacer clic en el microfono de nuevo para desactivar el modo voz
+3. Un popup aparecerá en la esquina inferior derecha mostrando el avatar de Camila
+4. Hablar normalmente - el agente escuchara, transcribira y respondera con voz sincronizada con el avatar
+5. El avatar mostrará sincronización labial (lip-sync) en tiempo real mientras habla
+6. Para interrumpir al agente, simplemente empezar a hablar
+7. Hacer clic en el microfono de nuevo para desactivar el modo voz (el avatar desaparecerá)
 
 ### Multiples Usuarios
 - Cada tab del navegador genera un `user_id` unico automaticamente
 - Cada tab mantiene su propia sesion independiente
 - Se pueden abrir multiples tabs para simular concurrencia
+
+## Avatar Visual (Azure Photo Avatar)
+
+El modo voz incluye un avatar visual que aparece en un **popup flotante en la esquina inferior derecha** de la pantalla, sincronizado con la voz del agente en tiempo real.
+
+### Características del Avatar
+
+- **Personaje**: Camila (configurable vía `AVATAR_CHARACTER`)
+- **Modelo**: VASA-1 de Microsoft Research (photo-realistic talking avatar)
+- **Sincronización labial (lip-sync)**: El avatar mueve los labios sincronizados con el audio del agente
+- **Transmisión**: WebRTC (video + audio) para latencia mínima
+- **Fallback**: Si el avatar falla al conectar, la conversación continúa solo con audio
+
+### Flujo de Conexión
+
+1. Frontend solicita avatar al iniciar modo voz (`avatar: true`)
+2. Backend responde con ICE servers de Azure
+3. Frontend crea RTCPeerConnection y genera SDP offer (base64-encoded)
+4. Backend reenvía el offer a Azure y recibe SDP answer
+5. WebRTC conecta → Video y audio del avatar empiezan a fluir
+6. Durante la conversación, el avatar muestra expresiones faciales y sincronización labial
+
+### Interfaz de Usuario
+
+- El avatar aparece como **popup flotante** en la esquina inferior derecha (320x400px)
+- Borde dorado (#f39c12) para destacarlo
+- Animación slide-in suave al aparecer
+- Siempre visible durante el modo voz (no se pierde con el scroll del chat)
+- Responsive: se ajusta automáticamente en pantallas móviles
 
 ## Configuracion de Voz
 
@@ -461,6 +510,7 @@ La sesion de voz se configura con las siguientes caracteristicas:
 - **Cancelacion de eco**: `server_echo_cancellation` (evita que el agente se escuche a si mismo)
 - **Voz del agente**: `es-AR-ElenaNeural` (espanol argentino)
 - **Deteccion de fin de frase**: Modelo semantico con umbral de 0.5 y timeout de 3 segundos
+- **Avatar**: VASA-1 con personaje Camila (sincronización labial vía WebRTC)
 
 ## Descripcion de los Archivos Principales
 
@@ -481,12 +531,14 @@ La sesion de voz se configura con las siguientes caracteristicas:
 |---|---|
 | `App.jsx` | Componente raiz que orquesta la aplicacion, gestiona mensajes y conecta hooks. |
 | `useTextWebSocket.js` | Hook WebSocket texto con reconexion automatica. URL configurable via `VITE_TEXT_WS_URL`. |
-| `useVoiceWebSocket.js` | Hook WebSocket voz con captura de audio. URL configurable via `VITE_VOICE_WS_URL`. |
+| `useVoiceWebSocket.js` | Hook WebSocket voz con captura de audio y signaling WebRTC. URL configurable via `VITE_VOICE_WS_URL`. |
+| `useAvatarWebRTC.js` | Hook para manejar la conexión WebRTC del avatar (RTCPeerConnection, ICE, SDP). |
 | `useAudioPlayback.js` | Hook para reproducir audio PCM del agente con Web Audio API. |
 | `Header.jsx` | Barra superior con titulo, ID de conversacion y estado de conexion. |
 | `ChatWindow.jsx` | Area de mensajes con scroll automatico. |
 | `MessageBubble.jsx` | Burbuja individual (tipos: usuario, bot, sistema, transcripcion, error). |
 | `InputBar.jsx` | Input de texto + boton microfono (inactivo/conectando/activo) + boton enviar. |
+| `AvatarStage.jsx` | Popup flotante en esquina inferior derecha que muestra el video del avatar. |
 
 ### Archivos de Deployment
 
