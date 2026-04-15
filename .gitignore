@@ -14,10 +14,7 @@ dist/
 build/
 
 # Variables de entorno y credenciales Azure
-.env
-.env.*
-!.env.example
-set-credentials.sh
+# .env y set-credentials.sh se incluyen intencionalmente en el repo
 
 # Logs de sesiones de voz
 backend/logs/
