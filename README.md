@@ -310,7 +310,23 @@ En Azure Portal > **Microsoft Entra ID** > **App registrations** > **New registr
 - Tipo de cuenta: "My organization only"
 - Crear un **Client Secret**: App registration > Certificates & secrets > New client secret
 
-#### 2. Asignar Roles al Service Principal
+#### 2. Permisos de la App Registration (API Permissions)
+
+Ademas de los roles IAM, la App Registration necesita permisos de API para acceder a los servicios de Azure AI.
+
+En Azure Portal > **Microsoft Entra ID** > **App registrations** > seleccionar la app > **API permissions** > **Add a permission**, agregar los permisos necesarios para Azure Cognitive Services y Azure AI Foundry:
+
+![App Registration API Permissions](app-registration-permises.jpg)
+
+> **Que son los API Permissions?** Son los permisos que le otorgas a tu aplicacion (Service Principal) para llamar a las APIs de Microsoft. Sin estos permisos, aunque el Service Principal tenga roles IAM asignados, las llamadas a la API de Azure AI Foundry seran rechazadas con un error 403. Hay dos tipos:
+> - **Delegated permissions**: El servicio actua en nombre de un usuario (requiere que el usuario haya iniciado sesion). Se usan en apps con login interactivo.
+> - **Application permissions**: El servicio actua con su propia identidad, sin usuario. Son los que se usan para backends y servicios automatizados como este proyecto.
+>
+> En este proyecto se usan **Application permissions** porque los backends de Python corren sin intervencion del usuario (autenticacion no interactiva con `ClientSecretCredential`).
+
+Despues de agregar los permisos, un administrador del tenant debe hacer clic en **"Grant admin consent for [organizacion]"** para que los permisos queden activos. Sin este paso, los permisos quedan en estado "Not granted" y las llamadas a la API fallaran.
+
+#### 3. Asignar Roles al Service Principal (IAM)
 
 En el recurso **Azure AI Services** (ej: `axxon-bot-services`) y en el **Foundry Project** (ej: `proj-axxon-bot`), ir a **Access control (IAM)** > **Add role assignment** y asignar al Service Principal:
 
@@ -323,7 +339,7 @@ En el recurso **Azure AI Services** (ej: `axxon-bot-services`) y en el **Foundry
 
 > **Importante:** Los roles deben estar asignados directamente en el recurso de AI Services y/o en el Foundry Project, no solo a nivel de Resource Group. La propagacion de roles puede tardar 5-10 minutos.
 
-#### 3. Configurar credenciales en los Container Apps
+#### 4. Configurar credenciales en los Container Apps
 
 Editar los archivos `backend/text/set-credentials.sh` y `backend/voice/set-credentials.sh` con las credenciales del Service Principal:
 
